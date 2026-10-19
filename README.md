@@ -1,6 +1,6 @@
 # 枝叶学习笔记
 
-面向 Apple 芯片 Mac 的本地学习笔记软件。当前版本 **0.4.1**，支持卡片记录、Typora 风格即时编辑、项目文件夹、标签、GitHub 笔记更新和随机考试。
+面向 Apple 芯片 Mac 的本地学习笔记软件。当前版本 **0.4.2**，支持卡片记录、Typora 风格即时编辑、项目文件夹、标签、GitHub 笔记更新和随机考试。
 
 本文件是软件的统一使用说明。仓库内导入的学习资料、题库目录索引和来源说明属于学习内容，单独保留。
 
@@ -8,8 +8,8 @@
 
 提供 Apple Silicon（M1/M2/M3/M4 等）安装包，任选一种：
 
-- `Zhiye-Notes-0.4.1-arm64.dmg`：打开后将 Zhiye Notes 拖入 Applications。
-- `Zhiye-Notes-0.4.1-arm64.pkg`：按照安装向导安装到 Applications。
+- `Zhiye-Notes-0.4.2-arm64.dmg`：打开后将 Zhiye Notes 拖入 Applications。
+- `Zhiye-Notes-0.4.2-arm64.pkg`：按照安装向导安装到 Applications。
 
 安装包目前在本地项目的 `release/` 目录，尚未发布到 GitHub Releases。应用采用本地 ad-hoc 签名，未使用 Apple Developer ID 签名或公证，PKG 未做发行证书签名；macOS 可能提示无法验证开发者。当前交付不包含 Intel Mac 或 Windows 安装包。
 
@@ -34,7 +34,7 @@
 从 GitHub 导入的资料按项目整理：
 
 - 每个仓库建立一个项目文件夹，内部保留原目录层级。
-- 项目可以展开或收起；点击项目查看其全部子目录笔记，点击子目录查看对应内容。
+- 项目和子目录可以展开或收起，内部直接列出笔记标题，按名称和题号排序；点击标题打开笔记编辑页，悬停显示完整标题。点击项目仍可查看其全部子目录笔记。
 - 默认仓库的 `imports/项目名/` 也会作为独立项目展示。
 - 旧版已导入笔记在首次刷新时迁移分类，保留内容和 GitHub 关联；之后尊重手动移动的位置。
 
