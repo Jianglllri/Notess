@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Publish verified local macOS installers to the system repository."""
 import hashlib,json,os,pathlib,subprocess,urllib.request,urllib.error,urllib.parse
 root=pathlib.Path(__file__).resolve().parent.parent
