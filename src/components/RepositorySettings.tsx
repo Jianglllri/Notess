@@ -1,0 +1,13 @@
+import { useState } from 'react';
+import { Modal } from './Modal';
+import { getRepositories, getSessionToken, saveRepositories, setSessionToken } from '../lib/repositories';
+import { checkRepository } from '../lib/cloudSync';
+export function RepositorySettings(){
+ const [open,setOpen]=useState(false),[config,setConfig]=useState(getRepositories),[token,setToken]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ return <><button className="sidebar-pull" onClick={()=>{setConfig(getRepositories());setMessage('');setOpen(true);}}>仓库与隐私设置</button><Modal open={open} onClose={()=>{if(!busy){setOpen(false);setToken('');}}} title="使用模式与仓库" description="系统仓库用于软件更新；笔记按 public / private 上传到对应仓库。导入清单分别保存在两个笔记仓库中。">
+ <div className="study-form repository-settings"><label>使用模式<select aria-label="笔记使用模式" value={config.mode || 'cloud'} onChange={e=>setConfig(c=>({...c,mode:e.target.value as 'local'|'cloud'}))}><option value="local">仅本地 · 不自动联网同步</option><option value="cloud">本地 + GitHub 云端</option></select></label><small>仅本地模式保留全部已下载笔记，可离线编辑、考试和绘图。切回云端后手动确认上传。</small><details open={config.mode!=='local'}><summary>仓库配置</summary>{(['system','public','private'] as const).map(key=><label key={key}>{key==='system'?'系统 / 安装包仓库':key==='public'?'公开笔记仓库（public）':'私密笔记仓库（private）'}<input value={config[key]} onChange={e=>setConfig(c=>({...c,[key]:e.target.value}))}/></label>)}
+ <label>公开仓库分支<input value={config.publicBranch} onChange={e=>setConfig(c=>({...c,publicBranch:e.target.value}))}/></label><label>私密仓库分支<input value={config.privateBranch} onChange={e=>setConfig(c=>({...c,privateBranch:e.target.value}))}/></label>
+ <label>GitHub Token（桌面版可用本机登录）<input type="password" autoComplete="off" value={token} onChange={e=>setToken(e.target.value)} placeholder="仅当前应用窗口内存保存"/></label><small>浏览器访问私密仓库需要 Token。关闭应用窗口后清除；不会写入笔记或备份。更换仓库不会自动迁移或删除旧内容。</small>
+ </details><p role="status">{message}</p><div className="modal-actions"><button className="secondary-button" disabled={busy} onClick={()=>{setSessionToken('');setToken('');setMessage('本次窗口的 Token 已清除。');}}>清除 Token</button><button className="primary-button" disabled={busy} onClick={()=>void(async()=>{setBusy(true);try{if(token)setSessionToken(token);await saveRepositories(config);const results=[];if(config.mode!=='local')for(const v of ['public','private'] as const){if(config[v]){await checkRepository(config[v],v,getSessionToken());results.push(`${v} 属性验证通过`);}}setMessage(config.mode==='local'?'已切换为仅本地模式，不自动联网。':`配置已保存。${results.join('；')}。`);setToken('');}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}})()}>{busy?'正在验证…':config.mode==='local'?'保存本地模式':'保存配置并验证'}</button></div></div>
+ </Modal></>;
+}

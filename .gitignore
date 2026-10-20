@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+coverage/
+test-results/
+playwright-report/
+public/vditor/
+release/
+
+notes-repository/
+deliverables/
+
+repository-work/
