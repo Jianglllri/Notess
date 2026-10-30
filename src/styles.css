@@ -403,3 +403,12 @@ input::placeholder { color: var(--muted); }
   .reading-heading h1 { font-size: 23px; }
   .reading-mode .markdown-body { padding: 22px 20px 30px; font-size: 16px; }
 }
+
+.reading-toc { position: sticky; top: 0; z-index: 5; border-bottom: 1px solid var(--line); background: var(--bg); border-radius: 12px; padding: 12px 24px; font-size: 13px; }
+.reading-toc summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.reading-toc summary span { font-weight: 400; color: var(--muted); margin-left: 10px; }
+.reading-toc nav { max-height: min(28vh, 230px); overflow: auto; margin-top: 8px; }
+.reading-toc ol { margin: 0; padding: 0; list-style: none; }
+.reading-toc a { display: block; padding: 5px 8px; border-radius: 5px; text-decoration: none; color: var(--secondary); overflow-wrap: anywhere; }
+.reading-toc a:hover, .reading-toc a[aria-current] { background: var(--accent-soft); color: var(--accent); }
+.reading-mode .markdown-body > :is(h1,h2,h3,h4,h5,h6) { scroll-margin-top: min(38vh, 310px); }

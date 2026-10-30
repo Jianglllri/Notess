@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { HTMLAttributes, ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -44,9 +44,36 @@ function CodeBlock({ children, ...props }: HTMLAttributes<HTMLPreElement>) {
   </div>;
 }
 
-export function MarkdownPreview({ content, assets }: { content: string; assets: Asset[] }) {
+export function MarkdownPreview({ content, assets, showToc = false }: { content: string; assets: Asset[]; showToc?: boolean }) {
+  const body = useRef<HTMLElement>(null);
+  const prefix = useId();
+  const [headings, setHeadings] = useState<{id: string; text: string; level: number}[]>([]);
+  const [active, setActive] = useState('');
+  useEffect(() => {
+    if (!showToc || !body.current) { setHeadings([]); return; }
+    // Read rendered headings: fenced code, escaped hashes and diagrams aren't sections.
+    const elements = Array.from(body.current.querySelectorAll<HTMLElement>(':scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6'));
+    const entries = elements.map((element, index) => {
+      element.id = `${prefix}-heading-${index}`;
+      element.tabIndex = -1;
+      return {id: element.id, text: element.textContent?.trim() || '未命名标题', level: Number(element.tagName.slice(1))};
+    });
+    setHeadings(entries); setActive('');
+  }, [content, showToc, prefix]);
+  function jump(id: string) {
+    const heading = Array.from(body.current?.children || []).find(element => element.id === id) as HTMLElement | undefined;
+    if (!heading) return;
+    heading.scrollIntoView({behavior: 'instant', block: 'start'});
+    heading.focus({preventScroll: true});
+    setActive(id);
+  }
   const assetMap = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
-  return <article className="markdown-body">
+  return <>
+    {showToc && headings.length > 0 && <details className="reading-toc" open>
+      <summary>文章目录 <span>{headings.length} 个标题</span></summary>
+      <nav aria-label="文章目录"><ol>{headings.map(heading => <li key={heading.id} style={{paddingLeft: `${(heading.level - Math.min(...headings.map(h => h.level))) * 12}px`}}><a href={`#${heading.id}`} aria-current={active === heading.id ? 'location' : undefined} onClick={event => {event.preventDefault(); jump(heading.id);}}>{heading.text}</a></li>)}</ol></nav>
+    </details>}
+    <article ref={body} className="markdown-body">
     {content.trim() ? <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[[rehypeKatex, { output: 'mathml', trust: false }], [rehypeHighlight, { detect: false, ignoreMissing: true }]]}
@@ -61,5 +88,5 @@ export function MarkdownPreview({ content, assets }: { content: string; assets: 
         },
       }}
     >{content}</ReactMarkdown> : <div className="preview-empty"><span>写下你的第一个想法</span><p>左侧输入 Markdown，内容会在这里展开。</p></div>}
-  </article>;
+  </article></>;
 }
