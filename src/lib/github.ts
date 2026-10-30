@@ -1,3 +1,4 @@
+import {titleFromMarkdown} from './markdownTitle';
 import type { GithubBinding, SourceBinding } from '../types';
 import { cloudEnabled, getRepositories, isNotesRepository, configureDesktop, getSessionToken } from './repositories';
 export const DEFAULT_REPO = 'https://github.com/Jianglllri/Notess';
@@ -6,11 +7,11 @@ export function parseGithub(value: string) {
   let url = new URL(value);
   if (url.origin === 'https://vscode.dev' && url.pathname.startsWith('/github/')) url = new URL(`https://github.com/${url.pathname.slice(8)}`);
   const [owner, repo, type, ...rest] = url.pathname.split('/').filter(Boolean);
-  if (url.protocol !== 'https:' || url.hostname !== 'github.com' || !owner || !repo || (type && !['blob', 'tree'].includes(type))) throw new Error('请输入 https://github.com/用户/仓库 或 blob/tree 文档链接。');
+  if (url.protocol !== 'https:' || url.host !== 'github.com' || url.username || url.password || !owner || !repo || !/^[\w-]+$/.test(owner) || !/^[\w.-]+$/.test(repo) || ['.','..'].includes(repo) || (type && !['blob', 'tree'].includes(type))) throw new Error('请输入 https://github.com/用户/仓库 或 blob/tree 文档链接。');
   return { owner, repo: repo.replace(/\.git$/, ''), type, rest };
 }
 export async function githubRequest(path: string, token = '', init: RequestInit = {}) {
-  if(init.method==='PUT'&&!cloudEnabled())throw new Error('已切换为仅本地模式，停止上传。');
+  if(init.method && init.method!=='GET'&&!cloudEnabled())throw new Error('已切换为仅本地模式，停止上传。');
   token=token || getSessionToken();
   if (!token && typeof window !== 'undefined' && window.zhiye) {
     const configured=Object.values(getRepositories()).filter(r=>r.startsWith('https://github.com/'));
@@ -21,16 +22,17 @@ export async function githubRequest(path: string, token = '', init: RequestInit 
   return response.json();
 }
 const enc = (s: string) => s.split('/').map(encodeURIComponent).join('/');
-export interface ImportedDoc { title: string; content: string; github: GithubBinding; sourceUrl: string; category: string; visibility?: 'public'|'private'; tags?: string[]; deletedAt?: string; source?: SourceBinding; folderPath?: string[]; pinned?: boolean }
-type CloudNote = {visibility?:'public'|'private';title:string;content:string;tags:string[];deletedAt?:string|null;source?:SourceBinding;folderPath?:string[];pinned?:boolean};
+export interface ImportedDoc { syncMode?:'reference'|'full'; title: string; content: string; github: GithubBinding; sourceUrl: string; category: string; visibility?: 'public'|'private'; tags?: string[]; deletedAt?: string; source?: SourceBinding; folderPath?: string[]; pinned?: boolean }
+type CloudNote = {referenceOnly?:boolean;syncMode?:'reference'|'full';visibility?:'public'|'private';title:string;content:string;tags:string[];deletedAt?:string|null;source?:SourceBinding;folderPath?:string[];pinned?:boolean};
 export function decodeNote(raw: string, fallback: string) {
-  const match = raw.match(/^<!-- zhiye:(.+) -->\n/);
-  let content = raw; let title = raw.match(/^# (.+)$/m)?.[1] || fallback.replace(/\.[^.]+$/, ''); let tags: string[] = [];
-  let deletedAt: string | undefined; let source: SourceBinding | undefined; let referenceOnly = false; let folderPath: string[] | undefined; let pinned: boolean | undefined; let visibility:'public'|'private'|undefined;
+  const match = raw.match(/^\uFEFF?<!-- zhiye:(.+) -->\r?\n/);
+  let content = raw; let title = titleFromMarkdown(raw, fallback); let tags: string[] = [];
+  let syncMode:'reference'|'full'|undefined; let deletedAt: string | undefined; let source: SourceBinding | undefined; let referenceOnly = false; let folderPath: string[] | undefined; let pinned: boolean | undefined; let visibility:'public'|'private'|undefined;
   if (match) { try {
     const meta = JSON.parse(match[1]);
+    if(meta.syncMode==='reference'||meta.syncMode==='full')syncMode=meta.syncMode;
     if (typeof meta.deletedAt === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(meta.deletedAt) && Number.isFinite(Date.parse(meta.deletedAt))) deletedAt = new Date(meta.deletedAt).toISOString();
-    if (typeof meta.title === 'string') title = meta.title;
+    if (typeof meta.title === 'string' && meta.title.trim()) title = meta.title.trim();
     if (Array.isArray(meta.tags)) tags = meta.tags.filter((x: unknown) => typeof x === 'string' && x.length <= 40).slice(0, 30);
     if (Array.isArray(meta.folderPath) && meta.folderPath.length <= 200 && meta.folderPath.every((p:unknown)=>typeof p==='string' && p.length>0 && p.length<=60)) folderPath=meta.folderPath;
     if(meta.visibility==='public'||meta.visibility==='private')visibility=meta.visibility;
@@ -42,12 +44,12 @@ export function decodeNote(raw: string, fallback: string) {
     }
     content = raw.slice(match[0].length);
   } catch { /* Ordinary Markdown remains readable. */ } }
-  return { title: title.slice(0, 200), content, tags, ...(deletedAt ? {deletedAt} : {}), ...(source ? {source,referenceOnly}:{}), ...(folderPath ? {folderPath}:{}), ...(pinned===undefined?{}:{pinned}),...(visibility?{visibility}:{}) };
+  return { ...(syncMode?{syncMode}:{}), title: title.slice(0, 200), content, tags, ...(deletedAt ? {deletedAt} : {}), ...(source ? {source,referenceOnly}:{}), ...(folderPath ? {folderPath}:{}), ...(pinned===undefined?{}:{pinned}),...(visibility?{visibility}:{}) };
 }
 export function encodeNote(note: CloudNote) {
   const source=note.source;
-  const referenceOnly=!!source && (note.content===source.baseContent);
-  const meta={title:note.title,tags:note.tags,...(note.visibility?{visibility:note.visibility}:{}),...(note.deletedAt?{deletedAt:note.deletedAt}:{}),...(note.folderPath?{folderPath:note.folderPath}:{}),...(note.pinned===undefined?{}:{pinned:note.pinned}),...(source?{source:{url:source.url,branch:source.branch,path:source.path,sha:source.sha,...(source.commit?{commit:source.commit}:{})},referenceOnly}:{})};
+  const referenceOnly=!!source && (note.referenceOnly ?? (note.syncMode!=='full' && note.content===source.baseContent));
+  const meta={...(note.syncMode?{syncMode:note.syncMode}:{}),title:note.title,tags:note.tags,...(note.visibility?{visibility:note.visibility}:{}),...(note.deletedAt?{deletedAt:note.deletedAt}:{}),...(note.folderPath?{folderPath:note.folderPath}:{}),...(note.pinned===undefined?{}:{pinned:note.pinned}),...(source?{source:{url:source.url,branch:source.branch,path:source.path,sha:source.sha,...(source.commit?{commit:source.commit}:{})},referenceOnly}:{})};
   return `<!-- zhiye:${JSON.stringify(meta).replace(/-->/g, '--\\u003e')} -->\n${referenceOnly ? '' : note.content}`;
 }
 export async function readSource(source: SourceBinding, token='') {
@@ -140,4 +142,26 @@ export async function publishGithub(url: string, branch: string, path: string, c
   if (expectedSha && sha !== expectedSha) throw new Error('远端版本已变化，提交已停止。请查看远端版本，合并需要的内容后重试。');
   const bytes = new TextEncoder().encode(content); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
   return githubRequest(endpoint, token, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: `${sha ? 'Update' : 'Publish'} note: ${path}`, content: btoa(binary), branch, ...(sha ? {sha} : {}) }) });
+}
+
+// Publish related files in one commit. A non-forced branch update rejects races.
+export async function publishGithubAtomic(url:string,branch:string,files:{path:string;content:string;sha?:string}[],token='') {
+  if(!cloudEnabled())throw Error('当前为仅本地模式。');
+  const p=parseGithub(url),base=`/repos/${enc(p.owner)}/${enc(p.repo)}`;
+  const ref=await githubRequest(`${base}/git/ref/heads/${enc(branch)}`,token);
+  const parent=ref.object.sha as string;
+  const commit=await githubRequest(`${base}/git/commits/${parent}`,token);
+  for(const file of files){
+    if(file.path.split('/').some(s=>!s||s==='.'||s==='..'))throw Error('无效文件路径');
+    const remote=await readGithubFile(url,parent,file.path,token);
+    if(remote?.sha!==file.sha)throw Error('远端版本已变化，提交已停止。');
+  }
+  const tree=await githubRequest(`${base}/git/trees`,token,{method:'POST',body:JSON.stringify({base_tree:commit.tree.sha,tree:files.map(f=>({path:f.path,mode:'100644',type:'blob',content:f.content}))})});
+  const next=await githubRequest(`${base}/git/commits`,token,{method:'POST',body:JSON.stringify({message:'Update note and import manifest atomically',tree:tree.sha,parents:[parent]})});
+  await githubRequest(`${base}/git/refs/heads/${enc(branch)}`,token,{method:'PATCH',body:JSON.stringify({sha:next.sha,force:false})});
+}
+export async function gitBlobSha(content:string){
+  const bytes=new TextEncoder().encode(content),header=new TextEncoder().encode(`blob ${bytes.length}\0`);
+  const input=new Uint8Array(header.length+bytes.length);input.set(header);input.set(bytes,header.length);
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1',input)),b=>b.toString(16).padStart(2,'0')).join('');
 }

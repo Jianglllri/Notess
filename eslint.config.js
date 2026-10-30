@@ -5,7 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', '*.tsbuildinfo', 'release', 'notes-repository', 'public/vditor'] },
+  { ignores: ['electron/local-service.mjs', 'dist', 'node_modules', '*.tsbuildinfo', 'release', 'notes-repository', 'repository-work', 'deliverables', 'public/vditor'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -18,5 +18,5 @@ export default tseslint.config(
     },
   },
   { files: ['electron/**/*.cjs'], rules: { '@typescript-eslint/no-require-imports': 'off' } },
-  { files: ['eslint.config.js', 'electron/**/*.cjs', 'scripts/**/*.mjs'], languageOptions: { globals: globals.node } },
+  { files: ['eslint.config.js', 'electron/**/*.cjs', 'scripts/**/*.mjs', 'server/**/*.mjs'], languageOptions: { globals: globals.node } },
 );

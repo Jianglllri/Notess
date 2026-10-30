@@ -48,7 +48,7 @@ export function SyncReminder({workspace, update, ready}: {workspace:Workspace; u
       try {
         const github=await publishCloudNote(note,token);
         if(!update(w=>markCloudPublished(w,note.id,github))) throw new Error('已上传，但本地关联未保存，请刷新检查。');
-        completed.push(note.id);results.push(`${note.title}：${note.deletedAt ? '删除记录已同步' : note.source && note.content===note.source.baseContent ? '来源清单已同步（未上传正文）' : '已更新'}。`);
+        completed.push(note.id);results.push(`${note.title}：${note.deletedAt ? '删除记录已同步' : note.syncMode!=='full' && note.source && note.content===note.source.baseContent ? '来源清单已同步（未上传正文）' : '已更新'}。`);
       } catch(error) {results.push(`${note.title}：${error instanceof Error?error.message:'更新失败'}`);}
       setMessage(results.join('\n'));
     }
@@ -59,8 +59,8 @@ export function SyncReminder({workspace, update, ready}: {workspace:Workspace; u
   return <><div className="sync-reminder"><button onClick={()=>check()} disabled={busy}>同步新增 / 修改 / 删除</button><small>每 2 天提醒 · 确认后上传</small>{due>0&&<small>下次：{new Date(due).toLocaleString('zh-CN')}</small>}</div>
     <Modal open={open} title="同步笔记变更到 GitHub？" description="根据文档 public / private 分别上传到配置的公开 / 私密笔记仓库。仅在你确认后同步所选变更。删除状态会让其他设备将笔记移入回收站；远端冲突会停止该篇更新。" onClose={()=>{if(!busy){setOpen(false);setToken('');defer();}}}>
       <p>{items.length?`发现 ${items.length} 条新增、修改或删除记录，请选择要上传的内容。`:'没有待上传笔记。'}</p>
-      <div className="upload-checklist">{items.map(note=><label key={note.id}><input type="checkbox" disabled={busy} checked={chosen.includes(note.id)} onChange={e=>setChosen(ids=>e.target.checked?[...ids,note.id]:ids.filter(id=>id!==note.id))}/><span>{note.deletedAt ? '【删除】' : note.source && note.content===note.source.baseContent ? '【来源链接】' : note.github ? '【修改 / 恢复】' : '【新增】'} [{note.visibility || 'public'}] {note.title||'未命名笔记'}</span></label>)}</div>
-      {items.length>0&&<><p>外部导入且未修改的内容只写入对应仓库的 .zhiye/imports.json 导入清单，保存来源链接和版本；个人新增、修改的内容同步正文。文件夹、标题、标签、置顶和删除 / 恢复状态一起同步。删除记录保留在 GitHub 的 Markdown 元数据中，不物理删除远端文件；另一端启动或刷新后生效。本地图片附件请另外导出 ZIP 备份。</p><label>GitHub Token（桌面版可使用已有登录）<input type="password" autoComplete="off" value={token} disabled={busy} onChange={e=>setToken(e.target.value)}/></label></>}
+      <div className="upload-checklist">{items.map(note=><label key={note.id}><input type="checkbox" disabled={busy} checked={chosen.includes(note.id)} onChange={e=>setChosen(ids=>e.target.checked?[...ids,note.id]:ids.filter(id=>id!==note.id))}/><span>{note.deletedAt ? '【删除】' : note.syncMode!=='full' && note.source && note.content===note.source.baseContent ? '【来源链接】' : note.github ? '【修改 / 恢复】' : '【新增】'} [{note.visibility || 'public'}] {note.title||'未命名笔记'}</span></label>)}</div>
+      {items.length>0&&<><p>选择来源清单且未修改的内容只写入对应仓库的 .zhiye/imports.json 导入清单，保存来源链接和版本；个人新增、修改的内容同步正文。文件夹、标题、标签、置顶和删除 / 恢复状态一起同步。删除记录保留在 GitHub 的 Markdown 元数据中，不物理删除远端文件；另一端启动或刷新后生效。本地图片附件请另外导出 ZIP 备份。</p><label>GitHub Token（桌面版可使用已有登录）<input type="password" autoComplete="off" value={token} disabled={busy} onChange={e=>setToken(e.target.value)}/></label><a className="text-button" href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener noreferrer">如何获取 Token（需要 Contents 读写权限）</a></>}
       <pre className="upload-results" role="status">{message}</pre><div className="modal-actions"><button className="secondary-button" disabled={busy} onClick={()=>{setOpen(false);setToken('');defer();}}>两天后再提醒</button><button className="primary-button" disabled={busy||!chosen.length||(!window.zhiye&&!token&&!getSessionToken())||!ready} onClick={()=>void upload()}>{busy?'正在更新…':'确认更新到 GitHub'}</button></div>
     </Modal></>;
 }

@@ -4,6 +4,7 @@ export interface GithubBinding {
 }
 export interface SourceBinding { commit?: string; url: string; branch: string; path: string; sha: string; baseContent: string; missing?: boolean }
 export interface Note {
+  syncMode?: 'reference' | 'full';
   visibility?: 'public' | 'private';
   publications?: {url:string;branch:string;path:string}[];
   source?: SourceBinding;
@@ -53,3 +54,4 @@ export interface Workspace {
 export type SaveStatus = 'loading' | 'saving' | 'saved' | 'error' | 'conflict';
 export type ViewMode = 'split' | 'edit' | 'preview' | 'rich';
 export type Filter = { kind: 'all' } | { kind: 'pinned' } | { kind: 'trash' } | { kind: 'unfiled' } | { kind: 'folder'; id: string } | { kind: 'tag'; id: string };
+export type NoteSort = 'updated' | 'created' | 'titleAsc' | 'titleDesc';

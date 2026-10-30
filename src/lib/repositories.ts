@@ -13,8 +13,8 @@ export function validateRepositories(value:RepositoryConfig):RepositoryConfig{
  if(!result.publicBranch||!result.privateBranch||result.publicBranch.length>250||result.privateBranch.length>250)throw new Error('请填写有效分支名。');return result;
 }
 export function getRepositories():RepositoryConfig{try{return validateRepositories({...DEFAULT_REPOSITORIES,...JSON.parse(localStorage.getItem('zhiye-repositories')||'{}')});}catch{return {...DEFAULT_REPOSITORIES};}}
-export async function configureDesktop(){const c=getRepositories();if(typeof window!=='undefined'&&window.zhiye?.configureRepositories)await window.zhiye.configureRepositories([c.system,c.public,c.private].filter(Boolean));}
-export async function saveRepositories(config:RepositoryConfig){const c=validateRepositories(config);if(typeof window!=='undefined'&&window.zhiye?.configureRepositories)await window.zhiye.configureRepositories([c.system,c.public,c.private].filter(Boolean));localStorage.setItem('zhiye-repositories',JSON.stringify(c));window.dispatchEvent(new Event('zhiye-repositories-changed'));}
+export async function configureDesktop(){const c=getRepositories();if(typeof window!=='undefined'&&window.zhiye?.configureRepositories)await window.zhiye.configureRepositories(c);}
+export async function saveRepositories(config:RepositoryConfig){const c=validateRepositories(config);if(typeof window!=='undefined'&&window.zhiye?.configureRepositories)await window.zhiye.configureRepositories(c);localStorage.setItem('zhiye-repositories',JSON.stringify(c));window.dispatchEvent(new Event('zhiye-repositories-changed'));}
 export function noteDestination(note:{visibility?:Visibility}){const c=getRepositories(),visibility=note.visibility||'public';return {url:c[visibility],branch:c[visibility==='private'?'privateBranch':'publicBranch'],visibility};}
 export function isNotesRepository(url:string){return ['https://github.com/Jianglllri/Notess',getRepositories().public,getRepositories().private].filter(Boolean).some(r=>r.toLowerCase()===url.toLowerCase());}
 let sessionToken='';

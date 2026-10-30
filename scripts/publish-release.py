@@ -1,8 +1,23 @@
 # -*- coding: utf-8 -*-
 """Publish verified local macOS installers to the system repository."""
-import hashlib,json,os,pathlib,subprocess,urllib.request,urllib.error,urllib.parse
+import argparse,hashlib,json,os,pathlib,subprocess,urllib.request,urllib.error,urllib.parse
 root=pathlib.Path(__file__).resolve().parent.parent
 version=json.loads((root/'package.json').read_text())['version']
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--commit',required=True,help='Exact pushed source commit (40 hex characters)')
+parser.add_argument('--notes-file',required=True,help='Reviewed UTF-8 release notes for this version')
+args=parser.parse_args()
+if len(args.commit)!=40 or any(c not in '0123456789abcdef' for c in args.commit):raise SystemExit('Use an exact commit SHA')
+release_notes=pathlib.Path(args.notes_file).read_text()
+if not release_notes.strip():raise SystemExit('Release notes are empty')
+source_repo=pathlib.Path(os.environ.get('ZHIYE_REPOSITORIES',str(root.parent/'web-notes-repositories')))/'system'
+# Refuse to publish installers against stale source staging.
+source_files=[p for folder in ['src','server','electron','scripts','.github'] for p in (root/folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts]
+source_files += [root/name for name in ['package.json','package-lock.json','index.html','vite.config.ts','tsconfig.json','eslint.config.js','.gitignore','README.md']]
+for file in source_files:
+    relative=file.relative_to(root).as_posix()
+    committed=subprocess.run(['git','-C',str(source_repo),'show',args.commit+':'+relative],capture_output=True)
+    if committed.returncode or committed.stdout!=file.read_bytes():raise SystemExit('Source differs from release commit: '+relative)
 repo='Jianglllri/Notess'
 files=[root/'release'/f'Zhiye-Notes-{version}-arm64.{ext}' for ext in ['dmg','pkg']]
 for f in files:
@@ -23,11 +38,13 @@ def request(url,method='GET',data=None,ctype='application/json'):
         with urllib.request.urlopen(req,timeout=600) as r: return json.load(r)
     except urllib.error.HTTPError as e:
         raise SystemExit(f'GitHub request failed: {method} HTTP {e.code}') from None
+remote=request(base+'/commits/'+args.commit)
+if remote['sha']!=args.commit:raise SystemExit('Source commit is not available on GitHub')
 releases=request(base+'/releases')
 release=next((r for r in releases if r['tag_name']=='v'+version),None)
 if release and not release['draft']: raise SystemExit('Version already published; refusing to overwrite.')
 if not release:
-    release=request(base+'/releases','POST',{'tag_name':'v'+version,'target_commitish':'main','name':'枝叶学习笔记 '+version+' · 首个正式版','draft':True,'prerelease':False,'body':'首个正式版本，适用于 Apple 芯片 Mac。\n\n- Markdown 即时编辑、代码高亮与数学公式\n- 项目文件夹、标签及文件夹/笔记反复移动\n- 可视化思维导图和流程图：拖拽、节点缩放、连线及撤销重做\n- 仅本地或本地 + GitHub 模式，公开与私密笔记分仓同步\n- 外部题库云端保存导入清单，本地下载正文\n- GitHub 导入与笔记更新、每两天确认上传提醒\n- 随机考试、Markdown / HTML 导出与 ZIP 备份\n- 应用启动及运行期间每 6 小时检查新版，在应用内提示下载安装\n\n下载 DMG 或 PKG 任选一种。下载后退出旧应用再覆盖安装，本地笔记保留。安装包使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证，macOS 可能提示无法验证开发者。\n\n更新提醒从 1.0.0 开始提供，当前下载安装由用户操作，不会静默替换软件。'})
+    release=request(base+'/releases','POST',{'tag_name':'v'+version,'target_commitish':args.commit,'name':'枝叶学习笔记 '+version,'draft':True,'prerelease':False,'body':release_notes})
 print('Release draft ready',release['id'],flush=True)
 for f in files:
     existing=next((a for a in request(base+'/releases/'+str(release['id']))['assets'] if a['name']==f.name),None)

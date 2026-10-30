@@ -1,7 +1,9 @@
 import type { Note } from '../types';
 export interface Question { id: string; source: string; prompt: string; answer: string }
+const cache=new WeakMap<Note,Question[]>();
 export function questionsFromNotes(notes: Note[]): Question[] {
   return notes.filter(n => !n.deletedAt).flatMap(note => {
+    const cached=cache.get(note);if(cached)return cached;
     const questions: Question[] = [];
     let active: { prompt: string; line: number; body: string[] } | null = null;
     let fence = ''; let fenceLength = 0;
@@ -33,7 +35,7 @@ export function questionsFromNotes(notes: Note[]): Question[] {
         if (prompt && answer) questions.push({id: `${note.id}-interview`, source:note.title, prompt, answer});
       }
     }
-    return questions;
+    cache.set(note,questions);return questions;
   });
 }
 export function sampleQuestions(questions: Question[], count: number): Question[] {

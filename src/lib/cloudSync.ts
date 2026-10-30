@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { GithubBinding, Note, Workspace } from '../types';
 import type { ImportedDoc } from './github';
-import { decodeNote, encodeNote, githubRequest, importGithub, parseGithub, publishGithub, readGithubFile, readSource } from './github';
+import { decodeNote, encodeNote, gitBlobSha, publishGithubAtomic, githubRequest, importGithub, parseGithub, publishGithub, readGithubFile, readSource } from './github';
 import { cloudEnabled, noteDestination } from './repositories';
 import type { Visibility } from './repositories';
 import { sourceKey } from './sync';
@@ -21,7 +21,10 @@ export function putEntry(manifest:ImportManifest,entry:ImportManifest['entries']
 function serializeManifest(manifest:ImportManifest){const raw=JSON.stringify(manifest,null,2);if(new TextEncoder().encode(raw).length>900000)throw new Error('导入清单超过 900 KB，请拆分仓库后再同步。');return raw;}
 export async function publishCloudNote(note:Note,token=''):Promise<GithubBinding>{
  if(!cloudEnabled())throw new Error('当前为仅本地模式，未上传任何内容。');
- const target=noteDestination(note);await checkRepository(target.url,target.visibility,token);
+ const target=noteDestination(note);
+ if(note.deletedAt && (!note.github || note.github.format!=='md'))throw new Error('这篇笔记没有云端关联，无需上传删除记录。');
+ if(note.deletedAt && (note.github!.url.toLowerCase()!==target.url.toLowerCase() || note.github!.branch!==target.branch))throw new Error('原云端仓库或分支与当前设置不同，请恢复原配置后同步删除；不会在新仓库创建删除记录。');
+ await checkRepository(target.url,target.visibility,token);
  const g=note.github?.url.toLowerCase()===target.url.toLowerCase()&&note.github.branch===target.branch?note.github:undefined;
  const origin=note.source?parseGithub(note.source.url):null;
  const path=g?.path || (origin?`imports/${origin.owner}/${origin.repo}/${note.source!.path}`:`notes/${note.id}.md`);
@@ -29,8 +32,10 @@ export async function publishCloudNote(note:Note,token=''):Promise<GithubBinding
  const decoded=decodeNote(snapshot,path),referenceOnly=!!decoded.referenceOnly;
  const {sha,manifest}=await manifestFile(target.url,target.branch,token);
  const previous=manifest.entries.find(e=>e.path===path);
+ if(previous?.mode==='reference' && previous.record===snapshot)return {url:target.url,branch:target.branch,path,sha:sha!,format:'md',transport:'manifest',syncedAt:new Date().toISOString(),baseSnapshot:snapshot,baseContent:note.content};
+ const resumedCopy=g?.transport==='manifest' && previous?.mode==='copy' && previous.record===g.baseSnapshot && !!previous.fileSha;
  if(previous?.mode==='reference' && previous.record!==g?.baseSnapshot)throw new Error('云端导入记录已变化，请刷新并处理冲突后重试。');
- if(g?.transport==='manifest' && previous?.mode!=='reference')throw new Error('云端导入记录已被移除或改为正文副本，请先刷新核对。');
+ if(g?.transport==='manifest' && previous?.mode!=='reference' && !resumedCopy)throw new Error('云端导入记录已被移除或改为正文副本，请先刷新核对。');
  let resultSha:string;
  if(referenceOnly){
    let fileSha=previous?.fileSha;
@@ -43,13 +48,14 @@ export async function publishCloudNote(note:Note,token=''):Promise<GithubBinding
    const result=await publishGithub(target.url,target.branch,MANIFEST_PATH,serializeManifest(next),token,sha);resultSha=result.content.sha;
  }else{
    const existing=await readGithubFile(target.url,target.branch,path,token);
-   // Retry safely after a body upload succeeded but the manifest update failed.
-   const identical=existing?.content===snapshot;
-   if(identical)resultSha=existing!.sha;
-   else {const result=await publishGithub(target.url,target.branch,path,snapshot,token,g?.transport==='manifest'?previous?.fileSha:g?.sha);resultSha=result.content.sha;}
+   const expected=g?.transport==='manifest'?previous?.fileSha:g?.sha;
    if(previous?.mode==='reference'){
-    const next=putEntry(manifest,{path,mode:'copy'});await publishGithub(target.url,target.branch,MANIFEST_PATH,serializeManifest(next),token,sha);
-   }
+    resultSha=await gitBlobSha(snapshot);
+    const next=putEntry(manifest,{path,mode:'copy',record:previous.record,fileSha:resultSha});
+    await publishGithubAtomic(target.url,target.branch,[{path,content:snapshot,sha:expected},{path:MANIFEST_PATH,content:serializeManifest(next),sha}],token);
+   }else if(existing?.content===snapshot) resultSha=existing.sha;
+   else {const result=await publishGithub(target.url,target.branch,path,snapshot,token,expected);resultSha=result.content.sha;}
+
  }
  return {url:target.url,branch:target.branch,path,sha:resultSha,format:'md',transport:referenceOnly?'manifest':'file',syncedAt:new Date().toISOString(),baseSnapshot:snapshot,baseContent:note.content};
 }

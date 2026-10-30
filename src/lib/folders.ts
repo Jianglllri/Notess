@@ -9,3 +9,16 @@ export function folderLabel(folders:Folder[],id:string):string {
   while(cursor&&!seen.has(cursor)){seen.add(cursor);const f=folders.find(f=>f.id===cursor);if(!f)break;parts.unshift(f.name);cursor=f.parentId||null;}
   return parts.join(' / ');
 }
+
+/** Remove a folder tree while retaining recoverable note tombstones for sync. */
+export function trashFolder(workspace: import('../types').Workspace, folderId: string, at = new Date().toISOString()): import('../types').Workspace {
+  if (!workspace.folders.some(folder => folder.id === folderId)) return workspace;
+  const removed = new Set(workspace.folders.filter(folder => insideFolder(workspace.folders, folder.id, folderId)).map(folder => folder.id));
+  return {
+    ...workspace,
+    folders: workspace.folders.filter(folder => !removed.has(folder.id)),
+    notes: workspace.notes.map(note => note.folderId && removed.has(note.folderId)
+      ? { ...note, folderId: null, folderPath: [], deletedAt: note.deletedAt || at, updatedAt: at }
+      : note),
+  };
+}

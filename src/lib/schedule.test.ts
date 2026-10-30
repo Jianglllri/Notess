@@ -25,3 +25,12 @@ it('does not re-upload legacy unchanged imports merely because fetching took tim
 });
 
 it("does not upload deletion of a never-published local note",()=>{const n=newNote();n.deletedAt=new Date().toISOString();expect(needsUpload(n)).toBe(false);});
+
+import {needsDeletionSync} from './schedule';
+it('only requires deletion sync for a cloud binding, never for import provenance alone',()=>{
+ const n={...newNote(),deletedAt:new Date().toISOString(),sourceUrl:'https://github.com/other/questions/blob/main/a.md',source:{url:'https://github.com/other/questions',branch:'main',path:'a.md',sha:'a'.repeat(40),baseContent:''}};
+ expect(needsDeletionSync(n)).toBe(false);expect(needsUpload(n)).toBe(false);
+ const published={...n,github:{url:DEFAULT_REPO,branch:'main',path:'a.md',sha:'a'.repeat(40),format:'md' as const,transport:'manifest' as const,syncedAt:n.updatedAt,baseSnapshot:encodeNote({...n,deletedAt:null})}};
+ expect(needsDeletionSync(published)).toBe(true);
+ published.github.baseSnapshot=encodeNote(published);expect(needsDeletionSync(published)).toBe(false);
+});

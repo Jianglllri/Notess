@@ -1,1 +1,1 @@
-interface Window { zhiye?: { configureRepositories(urls:string[]):Promise<void>; githubRequest(path:string,method:string,body:string):Promise<{content:{sha:string};[key:string]:unknown}> } }
+interface Window { zhiye?: { localWorkspace(operation:string,input?:unknown):Promise<{status:number;data:unknown}>; configureRepositories(config:import('./lib/repositories').RepositoryConfig):Promise<void>; githubRequest(path:string,method:string,body:string):Promise<{content:{sha:string};[key:string]:unknown}> } }

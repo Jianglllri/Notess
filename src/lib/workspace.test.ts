@@ -186,10 +186,27 @@ describe('filterNotes', () => {
   it.each([['  hello  ', ['old']], ['世界', ['old']], ['unique body', ['new']], ['javascript', ['pin', 'old']], ['   ', ['pin', 'new', 'old']], ['missing', []]])('标题/正文/标签查询 %s', (query, ids) => {
     expect(filterNotes(input, { kind: 'all' }, query).map(item => item.id)).toEqual(ids);
   });
-  it('搜索与分类取交集，回收站也支持查询', () => {
-    expect(filterNotes(input, { kind: 'pinned' }, 'hello')).toEqual([]);
-    expect(filterNotes(input, { kind: 'trash' }, 'javascript').map(item => item.id)).toEqual(['deleted']);
-  });
+it('搜索与分类取交集，回收站也支持查询', () => {
+expect(filterNotes(input, { kind: 'pinned' }, 'hello')).toEqual([]);
+expect(filterNotes(input, { kind: 'trash' }, 'javascript').map(item => item.id)).toEqual(['deleted']);
+});
+it('支持按创建时间与标题排序，置顶笔记始终在前，不修改输入数组', () => {
+const sorted = workspace({
+folders: [{ id: 'f', name: '分类', createdAt: AT }],
+notes: [
+note({ id: 'b', title: 'Banana', createdAt: LATER, folderId: 'f' }),
+note({ id: 'a', title: 'apple', folderId: 'f' }),
+note({ id: 'pin', pinned: true, title: '凿子', folderId: 'f' }),
+note({ id: 'empty', folderId: 'f' }),
+],
+});
+const before = structuredClone(sorted);
+expect(filterNotes(sorted, { kind: 'folder', id: 'f' }, '', 'created').map(item => item.id)).toEqual(['pin', 'b', 'a', 'empty']);
+expect(filterNotes(sorted, { kind: 'folder', id: 'f' }, '', 'titleAsc').map(item => item.id)).toEqual(['pin', 'empty', 'a', 'b']);
+expect(filterNotes(sorted, { kind: 'folder', id: 'f' }, '', 'titleDesc').map(item => item.id)).toEqual(['pin', 'b', 'a', 'empty']);
+expect(filterNotes(sorted, { kind: 'folder', id: 'f' }, '').map(item => item.id)).toEqual(['pin', 'b', 'a', 'empty']);
+expect(sorted).toEqual(before);
+});
 });
 
 describe('pruneUnreferencedAssets', () => {

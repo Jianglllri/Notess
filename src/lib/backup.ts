@@ -1,7 +1,10 @@
+import {encodeNote} from './github';
+import {exportBackupInWorker} from './backupExport';
 import JSZip from 'jszip';
 import type { JSZipObject } from 'jszip';
 import type { Workspace } from '../types';
 import { MAX_BACKUP_BYTES, MAX_WORKSPACE_BYTES, validateWorkspace } from './workspace';
+import { insideFolder } from './folders';
 
 export function downloadBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
@@ -14,28 +17,17 @@ export function downloadBlob(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-export async function exportBackup(workspace: Workspace): Promise<{ blob: Blob; at: string }> {
-  const at = new Date().toISOString();
-  const snapshot = validateWorkspace({ ...workspace, lastBackupAt: at });
-  const zip = new JSZip();
-  zip.file('workspace.json', JSON.stringify(snapshot));
-  for (const note of snapshot.notes) {
-    const content = note.content.replace(/asset:\/\/([a-zA-Z0-9_-]+)/g, (match, id: string) => {
-      const asset = snapshot.assets.find(item => item.id === id);
-      if (!asset) return match;
-      const ext = asset.mime === 'image/jpeg' ? 'jpg' : asset.mime.split('/')[1];
-      return `../assets/${id}.${ext}`;
-    });
-    zip.file(`notes/${note.id}.md`, content);
-  }
-  for (const asset of snapshot.assets) {
-    const ext = asset.mime === 'image/jpeg' ? 'jpg' : asset.mime.split('/')[1];
-    zip.file(`assets/${asset.id}.${ext}`, asset.dataUrl.split(',')[1], { base64: true });
-  }
-  return { blob: await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }), at };
+export async function exportBackup(workspace:Workspace):Promise<{blob:Blob;at:string}> {
+  if(typeof Worker==='undefined')return exportBackupInWorker(workspace);
+  return new Promise((resolve,reject)=>{
+    const worker=new Worker(new URL('./backup.worker.ts',import.meta.url),{type:'module'});
+    worker.onmessage=event=>{worker.terminate();if(event.data.error)reject(Error(event.data.error));else resolve(event.data);};
+    worker.onerror=()=>{worker.terminate();reject(Error('备份生成失败，请重试或导出原始 JSON。'));};
+    worker.postMessage(workspace);
+  });
 }
 
-function readLimited(entry: JSZipObject, limit: number): Promise<Uint8Array> {
+export function readLimited(entry: JSZipObject, limit: number, message = '备份展开后超过 50 MB，已停止读取。'): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     let length = 0;
     let stopped = false;
@@ -50,7 +42,7 @@ function readLimited(entry: JSZipObject, limit: number): Promise<Uint8Array> {
       if (length > limit) {
         stopped = true;
         stream.pause();
-        reject(new Error('备份展开后超过 50 MB，已停止读取。'));
+        reject(new Error(message));
         return;
       }
       chunks.push(chunk);
@@ -81,7 +73,42 @@ export async function importBackup(file: File): Promise<Workspace> {
   return validateWorkspace(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
 }
 
+export async function exportFolderZip(workspace: Workspace, folderId: string): Promise<Blob> {
+  const root = workspace.folders.find(folder => folder.id === folderId);
+  if (!root) throw new Error('文件夹不存在。');
+  const included = new Set(workspace.folders.filter(folder => insideFolder(workspace.folders, folder.id, folderId)).map(folder => folder.id));
+  included.add(folderId);
+  const notes = workspace.notes.filter(note => !note.deletedAt && note.folderId && included.has(note.folderId));
+  if (!notes.length) throw new Error('这个文件夹（含子文件夹）里没有笔记，无法导出。');
+  const sanitize = (value: string) => Array.from(value, char => char.charCodeAt(0) < 32 || /[\\/:*?"<>|]/.test(char) ? '-' : char).join('').trim().slice(0, 100) || '未命名';
+  const relOf = (noteFolderId: string | null): string[] => {
+    const parts: string[] = [];
+    const seen = new Set<string>();
+    let cursor = noteFolderId;
+    while (cursor && cursor !== folderId && !seen.has(cursor)) {
+      seen.add(cursor);
+      const folder = workspace.folders.find(item => item.id === cursor);
+      if (!folder) break;
+      parts.unshift(folder.name);
+      cursor = folder.parentId || null;
+    }
+    return parts;
+  };
+  const zip = new JSZip();
+  const used = new Set<string>();
+  for (const note of notes) {
+    const dirs = [root.name, ...relOf(note.folderId)].map(sanitize);
+    const dir = dirs.join('/');
+    const base = sanitize(note.title);
+    let fileName = `${dir}/${base}.md`; let count = 0;
+    while (used.has(fileName)) fileName = `${dir}/${base}（${++count}）.md`;
+    used.add(fileName);
+    zip.file(fileName, encodeNote({title:note.title,content:note.content,tags:note.tags,visibility:note.visibility}));
+  }
+  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+}
+
 export function exportNote(title: string, content: string) {
   const name = Array.from(title, char => char.charCodeAt(0) < 32 || /[\\/:*?"<>|]/.test(char) ? '-' : char).join('').slice(0, 100) || '未命名笔记';
-  downloadBlob(new Blob([content], { type: 'text/markdown;charset=utf-8' }), `${name}.md`);
+  downloadBlob(new Blob([encodeNote({title,content,tags:[]})], { type: 'text/markdown;charset=utf-8' }), `${name}.md`);
 }

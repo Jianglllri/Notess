@@ -14,3 +14,8 @@ export function needsUpload(note: Note, destination=note.github?.url || DEFAULT_
   if (note.deletedAt) return true;
   return g.baseContent === undefined || note.content !== g.baseContent || (!note.sourceUrl && Date.parse(note.updatedAt) > Date.parse(g.syncedAt) + 1000);
 }
+
+/** Source links are provenance, not evidence of a cloud copy. */
+export function needsDeletionSync(note: Note): boolean {
+  return !!note.deletedAt && !!note.github && note.github.format === 'md' && needsUpload(note, note.github.url);
+}

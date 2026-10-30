@@ -59,3 +59,11 @@ it('does not recreate removed folders on refresh, but creates folders for new do
  expect(added.added).toBe(1);
  expect(added.workspace.folders.length).toBe(first.folders.length+1);
 });
+it('refreshes source-derived titles but preserves custom names',()=>{
+ const external={...doc,title:'旧标题',content:'# 旧标题',github:{...doc.github,url:'https://github.com/example/learning'},sourceUrl:'https://github.com/example/learning/blob/main/a.md'};
+ const first=mergeRemote(createWorkspace(),[external]).workspace;
+ const updated={...external,title:'新标题',content:'# 新标题',github:{...external.github,sha:'b'.repeat(40)}};
+ expect(mergeRemote(first,[updated]).workspace.notes.at(-1)?.title).toBe('新标题');
+ first.notes.at(-1)!.title='自己命名';
+ expect(mergeRemote(first,[updated]).workspace.notes.at(-1)?.title).toBe('自己命名');
+});

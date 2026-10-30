@@ -1,6 +1,6 @@
 import { insideFolder, folderLabel } from './folders';
 import { z } from 'zod';
-import type { Filter, Note, Workspace } from '../types';
+import type { Filter, Note, NoteSort, Workspace } from '../types';
 
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 export const MAX_BACKUP_BYTES = 60 * 1024 * 1024;
@@ -8,6 +8,7 @@ export const MAX_WORKSPACE_BYTES = 50 * 1024 * 1024;
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
 const date = z.iso.datetime();
 const noteSchema = z.object({
+  syncMode:z.enum(['reference','full']).optional(),
   visibility:z.enum(['public','private']).optional(),
   publications:z.array(z.object({url:z.string().url().max(500),branch:z.string().min(1).max(250),path:z.string().min(1).max(1000)}).strict()).max(100).optional(),
   folderPath: z.array(z.string().min(1).max(60)).max(200).optional(),
@@ -91,16 +92,29 @@ export function createWorkspace(): Workspace {
   };
 }
 
-export function filterNotes(workspace: Workspace, filter: Filter, query: string): Note[] {
-  const needle = query.trim().toLocaleLowerCase();
-  return workspace.notes.filter(note => {
-    if (filter.kind === 'trash' ? !note.deletedAt : !!note.deletedAt) return false;
-    if (filter.kind === 'pinned' && !note.pinned) return false;
-    if (filter.kind === 'unfiled' && note.folderId !== null) return false;
-    if (filter.kind === 'folder' && !insideFolder(workspace.folders, note.folderId, filter.id)) return false;
-    if (filter.kind === 'tag' && !note.tags.includes(filter.id)) return false;
-    return !needle || `${note.title}\n${note.content}\n${note.tags.join(' ')}`.toLocaleLowerCase().includes(needle);
-  }).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
+export type NoteSorter = (a: Note, b: Note) => number;
+export const noteSorters: Record<NoteSort, NoteSorter> = {
+  updated: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+  created: (a, b) => b.createdAt.localeCompare(a.createdAt),
+  titleAsc: (a, b) => (a.title || '未命名笔记').localeCompare(b.title || '未命名笔记', 'zh-Hans-CN', { sensitivity: 'base' }),
+  titleDesc: (a, b) => (b.title || '未命名笔记').localeCompare(a.title || '未命名笔记', 'zh-Hans-CN', { sensitivity: 'base' }),
+};
+
+export function sortNotes(notes: Note[], sort: NoteSort): Note[] {
+  const rest = noteSorters[sort] ?? noteSorters.updated;
+  return [...notes].sort((a, b) => Number(b.pinned) - Number(a.pinned) || rest(a, b));
+}
+
+export function filterNotes(workspace: Workspace, filter: Filter, query: string, sort: NoteSort = 'updated'): Note[] {
+const needle = query.trim().toLocaleLowerCase();
+return sortNotes(workspace.notes.filter(note => {
+if (filter.kind === 'trash' ? !note.deletedAt : !!note.deletedAt) return false;
+if (filter.kind === 'pinned' && !note.pinned) return false;
+if (filter.kind === 'unfiled' && note.folderId !== null) return false;
+if (filter.kind === 'folder' && !insideFolder(workspace.folders, note.folderId, filter.id)) return false;
+if (filter.kind === 'tag' && !note.tags.includes(filter.id)) return false;
+return !needle || `${note.title}\n${note.content}\n${note.tags.join(' ')}`.toLocaleLowerCase().includes(needle);
+}), sort);
 }
 
 export function summary(content: string): string {
@@ -134,3 +148,6 @@ export function mergeWorkspace(current: Workspace, incoming: Workspace): Workspa
   }));
   return validateWorkspace({ ...current, ignoredSources: [...new Set([...(current.ignoredSources || []), ...(incoming.ignoredSources || [])])], folders, notes: [...current.notes, ...notes], assets: [...current.assets, ...incoming.assets.map(asset => ({ ...asset, id: assetIds.get(asset.id)! }))], updatedAt: now });
 }
+
+const summaries=new WeakMap<Note,string>();
+export function noteSummary(note:Note){let value=summaries.get(note);if(value===undefined){value=summary(note.content);summaries.set(note,value);}return value;}

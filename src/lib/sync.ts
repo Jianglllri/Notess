@@ -1,3 +1,4 @@
+import {titleFromMarkdown} from './markdownTitle';
 import type { Workspace } from '../types';
 import { newNote } from './workspace';
 import { needsUpload } from './schedule';
@@ -19,6 +20,27 @@ export function mergeRemote(workspace: Workspace, docs: ImportedDoc[], destinati
     const projectName = importedProject ? segments[1] : repo;
     const dirs = (importedProject ? segments.slice(2,-1) : segments.slice(0,-1));
     const own = doc.github.url.toLowerCase() === destination.toLowerCase();
+    if (!own) {
+      const matches=result.notes.flatMap((n,i)=>n.sourceUrl===doc.sourceUrl || (!!n.source && sourceKey(n.source)===sourceKey(doc.github)) ? [i] : []);
+      if(matches.length){
+        for(const i of matches){
+          let local=result.notes[i];
+          // A private origin may only tighten visibility, including full copies and tombstones.
+          if(doc.visibility==='private' && local.visibility!=='private') {
+            local={...local,visibility:'private',updatedAt:new Date().toISOString()};result.notes[i]=local;updated++;
+          }
+          if(local.deletedAt || local.syncMode==='full')continue;
+          const source=doc.source || {url:doc.github.url,branch:doc.github.branch,path:doc.github.path,sha:doc.github.sha,baseContent:doc.content};
+          if(!local.source){result.notes[i]={...local,source};updated++;continue;}
+          if(local.source.sha!==source.sha || local.source.missing){
+            if(local.content!==local.source.baseContent){conflicts++;continue;}
+            const title=local.title===titleFromMarkdown(local.source.baseContent,local.source.path)?doc.title:local.title;
+            result.notes[i]={...local,title,content:doc.content,source,updatedAt:new Date().toISOString()};updated++;
+          }
+        }
+        continue;
+      }
+    }
     const index = result.notes.findIndex(n => own ? (n.github?.url.toLowerCase() === destination.toLowerCase() && n.github.path === doc.github.path && n.github.branch === doc.github.branch) || (!!doc.source && (!n.github || n.github.url.toLowerCase()!==destination.toLowerCase()) && ((!!n.source && sourceKey(n.source)===sourceKey(doc.source) && (n.visibility || 'public')===(doc.visibility || 'public')) || n.sourceUrl===`${doc.source.url}/blob/${doc.source.branch}/${doc.source.path.split('/').map(encodeURIComponent).join('/')}`)) : n.sourceUrl === doc.sourceUrl || (!!n.source && n.source.url.toLowerCase()===doc.github.url.toLowerCase() && n.source.branch===doc.github.branch && n.source.path===doc.github.path));
     const needsFolders = own && !!doc.folderPath
       ? index < 0 || !needsUpload(result.notes[index],destination)
@@ -37,18 +59,6 @@ export function mergeRemote(workspace: Workspace, docs: ImportedDoc[], destinati
       let local = result.notes[index];
       if(own && (local.visibility || 'public') !== (doc.visibility || 'public')) {conflicts++;continue;}
       if(!local.deletedAt && !local.importFolderKey && needsFolders && !local.folderPath) {if(local.folderId) oldFolders.add(local.folderId);local={...local,folderId:parentId,importFolderKey:key};result.notes[index]=local;}
-      if (!own) {
-        const source=doc.source || {url:doc.github.url,branch:doc.github.branch,path:doc.github.path,sha:doc.github.sha,baseContent:doc.content};
-        if (!local.source) {
-          result.notes[index]={...local,source}; updated++; continue;
-        }
-        if (local.deletedAt) continue;
-        if (local.source.sha!==source.sha) {
-          if (local.content!==local.source.baseContent) {conflicts++; continue;}
-          result.notes[index]={...local,content:doc.content,source,updatedAt:new Date().toISOString()}; updated++;
-        } else if(local.source.missing) {result.notes[index]={...local,content:local.content===local.source.baseContent ? doc.content : local.content,source};updated++;}
-        continue;
-      }
       if (local.github?.url.toLowerCase()!==destination.toLowerCase() && doc.source) {
         // A device may already have imported this same source independently.
         // Adopt the cloud identity without replacing that device's local changes.
@@ -58,16 +68,22 @@ export function mergeRemote(workspace: Workspace, docs: ImportedDoc[], destinati
         continue;
       }
       if (local.github?.sha === doc.github.sha) {
-        if(local.source?.missing && doc.source && !doc.source.missing) {result.notes[index]={...local,content:local.content===local.source.baseContent ? doc.content : local.content,source:doc.source};updated++;}
+        if(local.source?.missing && doc.source && !doc.source.missing) {
+          const recovered={...local,content:local.content===local.source.baseContent ? doc.content : local.content,source:doc.source};
+          if(local.source.sha!==doc.source.sha || needsUpload(recovered,destination)){conflicts++;continue;}
+          result.notes[index]=recovered;updated++;
+        }
         if ((local.github.baseContent === undefined || local.github.baseSnapshot === undefined) && local.content === doc.content) result.notes[index] = {...local, github:doc.github};
         continue;
       }
       if (needsUpload(local,destination)) { conflicts++; continue; }
-      result.notes[index] = {...local, title:doc.title, tags:doc.tags || [], deletedAt:doc.deletedAt || null, content: doc.content, github: doc.github, ...(doc.visibility?{visibility:doc.visibility}:{}), ...(doc.source?{source:doc.source}:{}), ...(doc.folderPath?{folderId:parentId,folderPath:doc.folderPath}:{}), ...(doc.pinned===undefined?{}:{pinned:doc.pinned}), updatedAt: new Date().toISOString()}; updated++; continue;
+      if(doc.folderPath && JSON.stringify(local.folderPath)!==JSON.stringify(doc.folderPath)){let cursor=local.folderId;const seen=new Set<string>();while(cursor&&!seen.has(cursor)){seen.add(cursor);oldFolders.add(cursor);cursor=result.folders.find(f=>f.id===cursor)?.parentId||null;}}
+      result.notes[index] = {...local, syncMode:doc.syncMode, title:doc.title, tags:doc.tags || [], deletedAt:doc.deletedAt || null, content: doc.content, github: doc.github, ...(doc.visibility?{visibility:doc.visibility}:{}), ...(doc.source?{source:doc.source}:{}), ...(doc.folderPath?{folderId:parentId,folderPath:doc.folderPath}:{}), ...(doc.pinned===undefined?{}:{pinned:doc.pinned}), updatedAt: new Date().toISOString()}; updated++; continue;
     }
-    result.notes.push({...newNote(parentId), importFolderKey:key, title:doc.title, deletedAt:doc.deletedAt || null, content:doc.content, tags:doc.tags || [], sourceUrl:doc.sourceUrl, ...(doc.visibility?{visibility:doc.visibility}:{}), ...(doc.source?{source:doc.source}:!own?{source:{url:doc.github.url,branch:doc.github.branch,path:doc.github.path,sha:doc.github.sha,baseContent:doc.content}}:{}),...(doc.folderPath?{folderPath:doc.folderPath}:{}),...(doc.pinned===undefined?{}:{pinned:doc.pinned}),...(own ? {github:doc.github} : {})}); added++;
+    result.notes.push({...newNote(parentId), importFolderKey:key, syncMode:doc.syncMode, title:doc.title, deletedAt:doc.deletedAt || null, content:doc.content, tags:doc.tags || [], sourceUrl:doc.sourceUrl, ...(doc.visibility?{visibility:doc.visibility}:{}), ...(doc.source?{source:doc.source}:!own?{source:{url:doc.github.url,branch:doc.github.branch,path:doc.github.path,sha:doc.github.sha,baseContent:doc.content}}:{}),...(doc.folderPath?{folderPath:doc.folderPath}:{}),...(doc.pinned===undefined?{}:{pinned:doc.pinned}),...(own ? {github:doc.github} : {})}); added++;
   }
-  result.folders = result.folders.filter(f=>!oldFolders.has(f.id)||result.notes.some(n=>n.folderId===f.id)||result.folders.some(c=>c.parentId===f.id));
+  let removed=true;
+  while(removed){const before=result.folders.length;result.folders = result.folders.filter(f=>!oldFolders.has(f.id)||result.notes.some(n=>n.folderId===f.id)||result.folders.some(c=>c.parentId===f.id));removed=result.folders.length!==before;}
   return { workspace: result, added, updated, conflicts };
 }
 
@@ -75,6 +91,6 @@ export function withFolderPaths(workspace:Workspace):Workspace {
   return {...workspace,notes:workspace.notes.map(note=>{
     const path:string[]=[]; let id=note.folderId; const visited=new Set<string>();
     while(id && !visited.has(id)){visited.add(id);const folder=workspace.folders.find(f=>f.id===id);if(!folder)break;path.unshift(folder.name);id=folder.parentId || null;}
-    return {...note,folderPath:path};
+    return JSON.stringify(note.folderPath)===JSON.stringify(path)?note:{...note,folderPath:path};
   })};
 }

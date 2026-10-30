@@ -1,3 +1,4 @@
+import {decodeNote} from './github';
 // @vitest-environment node
 import JSZip from 'jszip';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -44,11 +45,11 @@ describe('backup roundtrip (native Node File / Blob)', () => {
     expect(imported.notes).toEqual(before.notes);
     expect(imported.assets).toEqual(before.assets);
     expect(imported.notes[0].content).toContain('![中文图片](asset://png)');
-    expect(await zip.file(`notes/${workspace.notes[0].id}.md`)!.async('string')).toBe(
+    expect(decodeNote(await zip.file(`notes/${workspace.notes[0].id}.md`)!.async('string'),'fallback').content).toBe(
       workspace.notes[0].content.replace('![中文图片](asset://png)', '![中文图片](../assets/png.png)'),
     );
     for (const note of workspace.notes.slice(1)) {
-      expect(await zip.file(`notes/${note.id}.md`)!.async('string')).toBe(note.content);
+      expect(decodeNote(await zip.file(`notes/${note.id}.md`)!.async('string'),'fallback').content).toBe(note.content);
     }
     for (const [id, extension, bytes] of [
       ['png', 'png', [1, 2, 3]], ['jpeg', 'jpg', [1, 2]],
@@ -73,7 +74,7 @@ describe('backup roundtrip (native Node File / Blob)', () => {
     const { blob, at } = await exportBackup(workspace);
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const markdown = await zip.file(`notes/${workspace.notes[0].id}.md`)!.async('string');
-    expect(markdown).toBe([
+    expect(decodeNote(markdown,'fallback').content).toBe([
       '# 图片路径',
       '![PNG](../assets/png.png)', '![JPEG](../assets/jpeg.jpg)',
       '![GIF](../assets/gif.gif)', '![WEBP](../assets/webp.webp)',
@@ -106,7 +107,7 @@ describe('backup roundtrip (native Node File / Blob)', () => {
     const before = structuredClone(workspace);
     const { blob, at } = await exportBackup(workspace);
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-    expect(await zip.file(`notes/${workspace.notes[1].id}.md`)!.async('string')).toBe('![删除笔记的图片](../assets/jpeg.jpg)');
+    expect(decodeNote(await zip.file(`notes/${workspace.notes[1].id}.md`)!.async('string'),'fallback').content).toBe('![删除笔记的图片](../assets/jpeg.jpg)');
     expect(Array.from(await zip.file('assets/jpeg.jpg')!.async('uint8array'))).toEqual([1, 2]);
     const restored = await importBackup(new File([blob], 'trash.zip'));
     expect(restored).toEqual({ ...before, lastBackupAt: at });

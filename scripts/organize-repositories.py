@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Prepare local repository content and importable workspaces. Never pushes or commits."""
-import hashlib, json, re, subprocess, uuid, zipfile
+import hashlib, json, re, subprocess, uuid, zipfile, os
 from datetime import datetime, timezone
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent.parent
-BASE=ROOT/'repository-work'
-OUT=ROOT/'deliverables'/'organized-notes'
+BASE=Path(os.environ.get('ZHIYE_REPOSITORIES',str(ROOT.parent/'web-notes-repositories')))
+OUT=Path(os.environ.get('ZHIYE_DELIVERABLES',str(ROOT.parent/'web-notes-extras'/'deliverables'))).expanduser().resolve()/'organized-notes'
+if OUT.is_relative_to(ROOT):
+ raise SystemExit('ZHIYE_DELIVERABLES must be outside the application source directory')
 NOW=datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
 def git(repo,*args):return subprocess.check_output(['git','-C',str(repo),*args])
 def uid(value):return str(uuid.uuid5(uuid.NAMESPACE_URL,value))

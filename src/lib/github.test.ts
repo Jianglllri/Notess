@@ -50,3 +50,31 @@ it('imports deletion metadata through the same Markdown transport and cache', as
     expect(fetcher).toHaveBeenCalledTimes(cache.length?3:4);
   }
 });
+
+it('restores the baseline of a full copy without replacing its personal body',async()=>{
+ const {encodeNote}=await import('./github');const source={url:'https://github.com/upstream/repo',branch:'main',path:'a.md',sha:'a'.repeat(40),baseContent:'source'};
+ const raw=encodeNote({title:'copy',content:'personal',tags:[],syncMode:'full',source});
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+  if(url.endsWith('/repos/a/b'))return ok({default_branch:'main'});
+  if(url.includes('/commits/'))return ok({sha:'b'.repeat(40)});
+  if(url.includes('/git/trees/'))return ok({tree:[{type:'blob',path:'copy.md',sha:'c'.repeat(40),size:raw.length}]});
+  if(url.includes('/git/blobs/'))return ok({encoding:'base64',content:btoa('source'),size:6});
+  return {ok:true,text:async()=>raw};
+ }));
+ const [doc]=await importGithub('https://github.com/a/b');expect(doc.content).toBe('personal');expect(doc.source?.baseContent).toBe('source');
+});
+
+it('atomic publication does not advance the branch when another writer wins',async()=>{
+ const {publishGithubAtomic}=await import('./github');const calls:{url:string;method:string}[]=[];
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit={})=>{
+  calls.push({url,method:init.method||'GET'});
+  if(url.includes('/git/ref/'))return ok({object:{sha:'a'.repeat(40)}});
+  if(url.includes('/git/commits/')&&!init.method)return ok({tree:{sha:'b'.repeat(40)}});
+  if(url.includes('/contents/'))return {ok:false,status:404};
+  if(init.method==='PATCH')return {ok:false,status:422};
+  return ok({sha:'c'.repeat(40)});
+ }));
+ await expect(publishGithubAtomic('https://github.com/a/b','main',[{path:'a.md',content:'a'},{path:'.zhiye/imports.json',content:'{}'}],'test-token')).rejects.toThrow();
+ expect(calls.filter(c=>c.method==='PATCH')).toHaveLength(1);
+ expect(calls.filter(c=>c.method==='PUT')).toHaveLength(0);
+});
